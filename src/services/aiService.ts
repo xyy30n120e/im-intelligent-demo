@@ -673,6 +673,9 @@ export function buildScheduleTime(
       dateStr = `${parseInt(md[1], 10)}月${parseInt(md[2], 10)}日`;
     } else if (rawDate && /[今明后周下]/u.test(rawDate)) {
       dateStr = resolveDate(rawDate.trim());
+    } else if (rawTime && /[今明后周下]/u.test(rawTime)) {
+      // 日期被写在 time 字段里（如示例 "周三下午15:00"）→ 从 time 串解析日期
+      dateStr = resolveDate(rawTime.trim());
     } else if (messageText) {
       // LLM 未抽出日期时，从原始消息文本兜底（如「周四下午开会」→ 本周四）
       const mdMsg = messageText.match(/(\d{1,2})\s*[月/.\-]\s*(\d{1,2})\s*[日号]?/);
