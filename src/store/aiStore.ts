@@ -68,8 +68,8 @@ interface AIState {
   clearActiveCard: (convId: string) => void;
   /** 就地合并日程字段（不重建时间，除非显式传入 time） */
   patchSchedule: (id: string, data: Partial<Pick<ScheduleItem, 'event' | 'location' | 'participants' | 'detail' | 'time' | 'status'>>) => void;
-  /** 就地合并待办字段 */
-  patchTodo: (id: string, data: Partial<Pick<TodoItem, 'task' | 'deadline' | 'detail' | 'completed'>>) => void;
+  /** 就地合并待办字段（含接收人 recipients，用于改派时把对应待办转移给新处理人） */
+  patchTodo: (id: string, data: Partial<Pick<TodoItem, 'task' | 'deadline' | 'detail' | 'completed' | 'recipients'>>) => void;
 
   setAITab: (tab: AITabType) => void;
   openRequestEdit: (id: string) => void;

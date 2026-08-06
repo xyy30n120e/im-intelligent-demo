@@ -1697,6 +1697,7 @@ const RequestTable = () => {
 
   const handleSubmit = (vals: RequestFormValues) => {
     if (editing) {
+      const recipients = vals.assignee ? [vals.assignee] : undefined;
       updateAICard(editing.id, {
         description: vals.description,
         issueType: vals.issueType,
@@ -1704,8 +1705,10 @@ const RequestTable = () => {
         version: vals.version,
         priority: vals.priority || undefined,
         remark: vals.remark,
-        recipients: vals.assignee ? [vals.assignee] : undefined,
+        recipients,
       });
+      // 同步「对应待办」（与需求卡片同 id）：处理人改派后，待办也从原处理人移除、归属新处理人
+      useAIStore.getState().patchTodo(editing.id, { recipients });
       setEditing(null);
     } else {
       const now = new Date();

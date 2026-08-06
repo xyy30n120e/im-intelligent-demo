@@ -242,6 +242,20 @@ export function applyUpdateToCard(opts: ApplyUpdateOptions): void {
     } as Partial<AICard>);
   }
 
+  // 改派（归属转移）：若本次续写消息 @ 提及了其他人（如「@B 你跟进这个需求」），
+  // 则把卡片与「对应待办」（同 id）都改派给被 @ 人——从原处理人移除、归属新处理人，
+  // 实现「从用户A删除、在用户B新建」。仅对 request / todo 生效，不影响日程。
+  if (type === 'todo' || type === 'request') {
+    const reMentions = [...msgText.matchAll(/@([^\s@]+)/g)]
+      .map((m) => m[1])
+      .filter((n) => n !== '所有人' && NAME_TO_ID[n]);
+    if (reMentions.length > 0) {
+      const pids = reMentions.map((n) => NAME_TO_ID[n]);
+      store.updateAICard(targetId, { recipients: pids });
+      store.patchTodo(targetId, { recipients: pids });
+    }
+  }
+
   if (attachedList && attachedList.length) {
     const existing = card.fileMetas || [];
     store.updateAICard(targetId, { fileMetas: [...existing, ...attachedList] });
