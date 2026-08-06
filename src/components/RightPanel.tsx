@@ -4,7 +4,7 @@ import { Message, FileMeta, formatSize, resolveFileKind } from '../data/mockData
 import { FileIcon } from './FileIcon';
 import { FilePreviewModal } from './FilePreviewModal';
 import { useAIStore } from '../store/aiStore';
-import { analyzeChatMessage, generateItemId, getCurrentTimeStr, computeRecipients, NAME_TO_ID, buildScheduleTime, summarizeFileContent, type ChatIntent } from '../services/aiService';
+import { analyzeChatMessage, generateItemId, getCurrentTimeStr, computeRecipients, NAME_TO_ID, buildScheduleTime, summarizeFileContent, isExplicitNewIntent, type ChatIntent } from '../services/aiService';
 import { IntentConfirmBar } from './IntentConfirmBar';
 import { applyUpdateToCard } from '../services/intentApply';
 import { AICard } from '../data/aiMock';
@@ -294,10 +294,20 @@ const RightPanel: React.FC = () => {
 
       let intent: ChatIntent;
 
-      // 文件消息优先挂到当前活动卡片；若文件说明本身是强新意图，才走新建流程
+      // 文件消息：若当前会话已有活动卡片，默认把文件挂到该卡片（而不是新建卡片）。
+      // 仅当文件说明文本本身是一个明确的、全新的事项意图时才新建卡片，
+      // 避免「发个材料」被误判成新事项、从而生成多张 AI 卡片。
       if (files.length > 0 && lastCard) {
         intent = await analyzeChatMessage(msgText, currentConv.name, convId, history);
 
+        const isStrongNewIntent =
+          !!intent.hasIntent &&
+          !intent.isUpdate &&
+          !intent.ambiguous &&
+          (intent.confidence ?? 0) >= 0.85 &&
+          isExplicitNewIntent(msgText);
+
+        // 明确是更新上一张卡片（含文件附件一并合并）
         if (intent.isUpdate && intent.updateTargetId) {
           applyUpdateToCard({
             targetId: intent.updateTargetId,
@@ -311,30 +321,38 @@ const RightPanel: React.FC = () => {
           return;
         }
 
-        if (!intent.hasIntent || intent.ambiguous) {
-          const targetId = intent.updateTargetId || lastCard.id;
-          const existing = useAIStore.getState().aiCards.find((c) => c.id === targetId)?.fileMetas || [];
-          useAIStore.getState().updateAICard(targetId, { fileMetas: [...existing, ...attachedList] });
-          if (intent.ambiguous) {
-            useAIStore.getState().addPendingIntent({
-              id: generateItemId(),
-              rawText: msgText,
-              predicted: intent.type!,
-              extracted: (intent.data as any) || {},
-              recipients,
-              fileMetas: [],
-              time: now,
-              convId,
-              convName: currentConv.name,
-              userMsgId,
-              confidence: intent.confidence ?? 0.7,
-              mode: 'ambiguous',
-              updateTargetId: intent.updateTargetId,
-              lastCardSummary: intent.lastCardSummary,
-            });
-          }
+        // 不确定是更新还是新建 → 文件先挂到上一张卡片，并弹出选择条
+        if (intent.ambiguous && intent.updateTargetId) {
+          const tId = intent.updateTargetId;
+          const existing = useAIStore.getState().aiCards.find((c) => c.id === tId)?.fileMetas || [];
+          useAIStore.getState().updateAICard(tId, { fileMetas: [...existing, ...attachedList] });
+          useAIStore.getState().addPendingIntent({
+            id: generateItemId(),
+            rawText: msgText,
+            predicted: intent.type!,
+            extracted: (intent.data as any) || {},
+            recipients,
+            fileMetas: [],
+            time: now,
+            convId,
+            convName: currentConv.name,
+            userMsgId,
+            confidence: intent.confidence ?? 0.7,
+            mode: 'ambiguous',
+            updateTargetId: intent.updateTargetId,
+            lastCardSummary: intent.lastCardSummary,
+          });
           return;
         }
+
+        // 非强新意图（文件说明只是文件名/无意图/续写信号）→ 挂到上一张卡片，不新建
+        if (!isStrongNewIntent) {
+          const tId = intent.updateTargetId || lastCard.id;
+          const existing = useAIStore.getState().aiCards.find((c) => c.id === tId)?.fileMetas || [];
+          useAIStore.getState().updateAICard(tId, { fileMetas: [...existing, ...attachedList] });
+          return;
+        }
+        // 强新意图 → 落到下方新建流程（文件会挂载到新卡片上）
       } else {
         intent = await analyzeChatMessage(msgText, currentConv.name, convId, history);
       }

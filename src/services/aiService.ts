@@ -405,6 +405,20 @@ function mockContinuation(
   return null;
 }
 
+/**
+ * 判断一段文本（通常是「文件说明」）是否明确表达了一个全新的事项意图，
+ * 足以让一次文件发送新建一张 AI 卡片。
+ * - 仅当文本含日程/待办/需求类关键词时才返回 true；
+ * - 纯附和/确认（好/收到/👍）返回 false；
+ * - 「材料」「会议纪要」这类仅作文件标签的文本返回 false，应挂到上一张卡片。
+ */
+export function isExplicitNewIntent(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (ACK_WORDS.test(t)) return false;
+  return classifyIntent(t) !== null;
+}
+
 // ── 不确定是否为上下文续写的兜底检测 ──
 
 const REFERS_BACK_RE = /(这个|那个|它|刚才|上面|上一个|之前|的会|的日程|的待办|的需求)/;
