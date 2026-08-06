@@ -1,0 +1,61 @@
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
+node_modules
+.next/
+.env*.local
+.DS_Store
+
+# Build output (包含被 Vite 内联的 VITE_ 密钥，绝不入库)
+dist/
+
+# WorkBuddy 项目记忆 / 运行数据（含本地笔记，不入库）
+.workbuddy/
+
+# Build / smoke-test temp artifacts
+.tmp_build/
+.verify_build*/
+.verify_build2/
+.verify_build3/
+.verify_build4/
+.verify_build5/
+.verify_build6/
+.verify_build7/
+.verify_build8/
+.verify_build9/
+.verify_build10/
+.verify_build11/
+.verify_build12/
+.verify_build13/
+.verify_build14/
+.verify_build15/
+.verify_build16/
+.verify_build17/
+.verify_build18/
+.verify_build19/
+.verify_build20/
+.verify_build21/
+.verify_build22/
+.verify_build23/
+.verify_build24/
+.verify_build25/
+.verify_build26/
+.smoke/
+_smoke.tsx
+test-key.mjs
+_tent.mjs
+
+# 临时调试 / 补丁草稿（非源码，不入库）
+_approval_data.mjs
+_verify_*.mjs
+tmp_*.py
+patch_*.txt
+RESTORE_NOTES.txt
+
+# Local env (含真实大模型 API Key，绝不入库)
+.env
+.env.local
+.env.*.local
