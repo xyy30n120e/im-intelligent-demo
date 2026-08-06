@@ -186,3 +186,71 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
     store.setActiveCard(convId, { id: firstReqId, type: 'request', summary: reqText, extracted: rData });
   }
 }
+
+export interface ApplyUpdateOptions {
+  /** 要更新的已有卡片 id */
+  targetId: string;
+  /** 卡片类型 */
+  type: IntentType;
+  /** 本次消息抽取/合并出的字段 */
+  extracted: Record<string, any>;
+  /** 原始聊天文本，用于时间归一化和补充说明 */
+  msgText: string;
+  /** 要追加到卡片的附件 */
+  attachedList?: any[];
+  /** 消息发送时间 */
+  now?: string;
+  /** 当前会话 id，用于刷新 activeCard */
+  convId: string;
+}
+
+/**
+ * 把一条「已识别为更新」的消息合并进已有卡片，并追加附件。
+ * 供 RightPanel.handleSend 的 isUpdate 分支和「待确认」选择条的「更新上一张」使用。
+ */
+export function applyUpdateToCard(opts: ApplyUpdateOptions): void {
+  const { targetId, type, extracted, msgText, attachedList, convId } = opts;
+  const store = useAIStore.getState();
+  const card = store.aiCards.find((c) => c.id === targetId);
+  if (!card) return;
+
+  if (type === 'schedule') {
+    const eventTime = buildScheduleTime(extracted, msgText);
+    const spatch: any = {};
+    if (extracted.event !== undefined) spatch.event = extracted.event;
+    if (extracted.location !== undefined) spatch.location = extracted.location;
+    if (extracted.participants !== undefined) spatch.participants = extracted.participants;
+    if (eventTime) spatch.time = eventTime;
+    store.patchSchedule(targetId, spatch);
+  } else if (type === 'todo') {
+    const tpatch: any = {};
+    if (extracted.task !== undefined) tpatch.task = extracted.task;
+    if (extracted.deadline !== undefined) tpatch.deadline = extracted.deadline;
+    if (extracted.detail !== undefined) {
+      tpatch.detail = extracted.detail;
+    } else if (msgText) {
+      const prev = (card as any).detail || '';
+      tpatch.detail = prev ? `${prev}；${msgText}` : msgText;
+    }
+    store.patchTodo(targetId, tpatch);
+  } else if (type === 'request') {
+    store.updateAICard(targetId, {
+      summary: extracted.content || extracted.description || (card as any).summary || msgText,
+      description: extracted.description || extracted.content || (card as any).description || msgText,
+      detail: extracted.detail || '',
+    } as Partial<AICard>);
+  }
+
+  if (attachedList && attachedList.length) {
+    const existing = card.fileMetas || [];
+    store.updateAICard(targetId, { fileMetas: [...existing, ...attachedList] });
+  }
+
+  // 刷新当前会话的活动卡片引用，便于后续消息继续续写
+  store.setActiveCard(convId, {
+    id: targetId,
+    type,
+    summary: (card as any).event || (card as any).task || (card as any).summary || msgText,
+    extracted: { ...((card as any).extracted || {}), ...extracted },
+  });
+}

@@ -4,8 +4,9 @@ import { Message, FileMeta, formatSize, resolveFileKind } from '../data/mockData
 import { FileIcon } from './FileIcon';
 import { FilePreviewModal } from './FilePreviewModal';
 import { useAIStore } from '../store/aiStore';
-import { analyzeChatMessage, generateItemId, getCurrentTimeStr, computeRecipients, NAME_TO_ID, buildScheduleTime, summarizeFileContent } from '../services/aiService';
+import { analyzeChatMessage, generateItemId, getCurrentTimeStr, computeRecipients, NAME_TO_ID, buildScheduleTime, summarizeFileContent, type ChatIntent } from '../services/aiService';
 import { IntentConfirmBar } from './IntentConfirmBar';
+import { applyUpdateToCard } from '../services/intentApply';
 import { AICard } from '../data/aiMock';
 import { addMessage, generateMessageId, getCurrentTime, contacts, type Contact } from '../data/mockData';
 
@@ -288,46 +289,93 @@ const RightPanel: React.FC = () => {
           content: m.content,
         }));
 
-      const intent = await analyzeChatMessage(msgText, currentConv.name, convId, history);
-      if (!intent.hasIntent || !intent.type) return;
+      // 当前会话已有的活动卡片（用于文件自动挂载 + 上下文续写）
+      const lastCard = useAIStore.getState().activeCardByConv[convId];
 
-      const confidence = intent.confidence ?? 0;
+      let intent: ChatIntent;
 
-      // 上下文续写合并：本消息是对已有卡片的补充/修改 → 更新原卡片，而不是新建一张
-      if (intent.isUpdate && intent.updateTargetId) {
-        const targetId = intent.updateTargetId;
-        const merged = (intent.data as any) || {};
-        const aStore = useAIStore.getState();
-        if (intent.type === 'schedule') {
-          const eventTime = buildScheduleTime(merged, msgText);
-          const spatch: any = {};
-          if (merged.event) spatch.event = merged.event;
-          if (merged.location) spatch.location = merged.location;
-          if (merged.participants) spatch.participants = merged.participants;
-          if (eventTime) spatch.time = eventTime;
-          aStore.patchSchedule(targetId, spatch);
-        } else if (intent.type === 'todo') {
-          const tpatch: any = {};
-          if (merged.task) tpatch.task = merged.task;
-          if (merged.deadline) tpatch.deadline = merged.deadline;
-          if (merged.detail) tpatch.detail = merged.detail;
-          aStore.patchTodo(targetId, tpatch);
-        } else if (intent.type === 'request') {
-          aStore.updateAICard(targetId, {
-            summary: merged.content || '',
-            description: merged.description || '',
-            detail: merged.detail || '',
-          } as any);
+      // 文件消息优先挂到当前活动卡片；若文件说明本身是强新意图，才走新建流程
+      if (files.length > 0 && lastCard) {
+        intent = await analyzeChatMessage(msgText, currentConv.name, convId, history);
+
+        if (intent.isUpdate && intent.updateTargetId) {
+          applyUpdateToCard({
+            targetId: intent.updateTargetId,
+            type: intent.type!,
+            extracted: (intent.data as any) || {},
+            msgText,
+            attachedList,
+            now,
+            convId,
+          });
+          return;
         }
-        // 刷新活动卡片引用（合并后的字段），便于后续消息继续续写
-        useAIStore.getState().setActiveCard(convId, {
-          id: targetId,
-          type: intent.type,
-          summary: merged.event || merged.task || merged.content || '',
-          extracted: merged,
+
+        if (!intent.hasIntent || intent.ambiguous) {
+          const targetId = intent.updateTargetId || lastCard.id;
+          const existing = useAIStore.getState().aiCards.find((c) => c.id === targetId)?.fileMetas || [];
+          useAIStore.getState().updateAICard(targetId, { fileMetas: [...existing, ...attachedList] });
+          if (intent.ambiguous) {
+            useAIStore.getState().addPendingIntent({
+              id: generateItemId(),
+              rawText: msgText,
+              predicted: intent.type!,
+              extracted: (intent.data as any) || {},
+              recipients,
+              fileMetas: [],
+              time: now,
+              convId,
+              convName: currentConv.name,
+              userMsgId,
+              confidence: intent.confidence ?? 0.7,
+              mode: 'ambiguous',
+              updateTargetId: intent.updateTargetId,
+              lastCardSummary: intent.lastCardSummary,
+            });
+          }
+          return;
+        }
+      } else {
+        intent = await analyzeChatMessage(msgText, currentConv.name, convId, history);
+      }
+
+      // 上下文续写合并 / 不确定 / 低置信度 / 新建 的统一分发
+      if (intent.isUpdate && intent.updateTargetId) {
+        applyUpdateToCard({
+          targetId: intent.updateTargetId,
+          type: intent.type!,
+          extracted: (intent.data as any) || {},
+          msgText,
+          attachedList,
+          now,
+          convId,
         });
         return;
       }
+
+      if (intent.ambiguous && intent.updateTargetId) {
+        useAIStore.getState().addPendingIntent({
+          id: generateItemId(),
+          rawText: msgText,
+          predicted: intent.type!,
+          extracted: (intent.data as any) || {},
+          recipients,
+          fileMetas: attachedList,
+          time: now,
+          convId,
+          convName: currentConv.name,
+          userMsgId,
+          confidence: intent.confidence ?? 0.7,
+          mode: 'ambiguous',
+          updateTargetId: intent.updateTargetId,
+          lastCardSummary: intent.lastCardSummary,
+        });
+        return;
+      }
+
+      if (!intent.hasIntent || !intent.type) return;
+
+      const confidence = intent.confidence ?? 0;
 
       if (confidence < 0.8) {
         // 低置信度：推入待确认队列，由用户在「待确认」选择条上手动决定加入哪个 Tab

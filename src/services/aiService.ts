@@ -195,6 +195,13 @@ export interface ChatIntent {
   isUpdate?: boolean;
   /** isUpdate 为 true 时，要更新的目标卡片 id */
   updateTargetId?: string;
+  /**
+   * 当 AI 无法确定当前消息是「新建」还是「更新上一张卡片」时标记为 true。
+   * 此时调用方应弹出选择条让用户决定：更新上一张 / 新建卡片 / 忽略。
+   */
+  ambiguous?: boolean;
+  /** ambiguous 为 true 时，上一张卡片的摘要（用于展示） */
+  lastCardSummary?: string;
 }
 
 /**
@@ -244,6 +251,16 @@ export async function analyzeChatMessage(
         isUpdate,
         updateTargetId: isUpdate ? lastCard!.id : undefined,
       };
+      // LLM 判断不是 isUpdate，但消息看起来仍可能是在补充/修改上一张卡片 → 进入用户确认
+      if (!result.hasIntent && lastCard && isAmbiguousUpdate(message, lastCard)) {
+        result = {
+          ...result,
+          ambiguous: true,
+          type: lastCard.type,
+          updateTargetId: lastCard.id,
+          lastCardSummary: lastCard.summary,
+        };
+      }
     } catch (e) {
       console.warn('[意图识别] 调用 LLM 失败，回退 mock：', e);
       source = 'mock(fallback)';
@@ -268,6 +285,16 @@ export async function analyzeChatMessage(
         updateTargetId: lastCard.id,
       };
       source = 'mock(continuation)';
+    } else if (isAmbiguousUpdate(message, lastCard)) {
+      // 本地无法确定是续写，但消息又带有补充/修改信号 → 交给用户选择
+      result = {
+        ...result,
+        ambiguous: true,
+        type: lastCard.type,
+        updateTargetId: lastCard.id,
+        lastCardSummary: lastCard.summary,
+      };
+      source = 'mock(ambiguous)';
     }
   }
 
@@ -275,6 +302,8 @@ export async function analyzeChatMessage(
     `[意图识别] source=${source}`,
     result.hasIntent
       ? `intent=${result.type}${result.isUpdate ? '(update)' : ''} confidence=${result.confidence}`
+      : result.ambiguous
+      ? `ambiguous(${result.type}) lastCard=${result.lastCardSummary}`
       : 'no-intent',
     `| "${message}"`
   );
@@ -359,6 +388,50 @@ function mockContinuation(
   }
 
   return null;
+}
+
+// ── 不确定是否为上下文续写的兜底检测 ──
+
+const REFERS_BACK_RE = /(这个|那个|它|刚才|上面|上一个|之前|的会|的日程|的待办|的需求)/;
+const TIME_TOKEN_RE = /(\d{1,2})[：:点](\d{0,2})/;
+const DATE_TOKEN_RE = /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日])/;
+const LOCATION_TOKEN_RE = /会议室|房间|地点|位置/;
+const PARTICIPANT_TOKEN_RE = /@|参加|出席|参会|一起|参与|加上/;
+
+/**
+ * 判断一条消息「可能」是在补充/修改上一张卡片，但 AI 又不够确定。
+ * 用于触发「让用户选择：更新上一张 / 新建卡片」的兜底确认条。
+ *
+ * 判定逻辑：
+ * - 有上一张卡片且在 30 分钟内；
+ * - 不是纯附和/确认/闲聊；
+ * - 包含补充信号词（改到/提前/地点/参与/加上…）或指向上一张卡片（它/刚才/那个…）；
+ * - 或包含时间/日期/地点/参与人 token（这些字段很可能是对旧卡片的修改）；
+ * - 但若消息本身是强新意图（如「明天下午开会」「提交报告」）且无补充信号，则不触发。
+ */
+export function isAmbiguousUpdate(
+  text: string,
+  lastCard?: { type: 'schedule' | 'todo' | 'request'; extracted: Record<string, any>; at: number }
+): boolean {
+  if (!lastCard) return false;
+  const t = text.trim();
+  if (!t) return false;
+  if (ACK_WORDS.test(t)) return false;
+  // 超过 30 分钟不再兜底询问，避免陈年卡片被误关联
+  if (Date.now() - lastCard.at > 30 * 60 * 1000) return false;
+
+  const hasStrongNewIntent = classifyIntent(t) !== null;
+  const hasUpdateSignal = SUPPLEMENT_SIGNALS.test(t) || REFERS_BACK_RE.test(t);
+  const hasFieldToken =
+    TIME_TOKEN_RE.test(t) ||
+    DATE_TOKEN_RE.test(t) ||
+    LOCATION_TOKEN_RE.test(t) ||
+    PARTICIPANT_TOKEN_RE.test(t);
+
+  // 强新意图且无补充信号 → 用户显然在聊一件新事，不要问
+  if (hasStrongNewIntent && !hasUpdateSignal) return false;
+
+  return hasUpdateSignal || hasFieldToken;
 }
 
 /** 抽取地点：地点在1218会议室 / 1218号会议室 / 会议室A / 3楼房间 */

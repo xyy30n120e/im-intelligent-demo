@@ -119,6 +119,12 @@ export interface PendingIntent {
   convName: string;
   userMsgId: string;
   confidence: number;
+  /** 待确认模式：predict=普通低置信度意图选择；ambiguous=不确定是更新旧卡片还是新建 */
+  mode?: 'predict' | 'ambiguous';
+  /** ambiguous 模式时，要更新的目标卡片 id */
+  updateTargetId?: string;
+  /** ambiguous 模式时，上一张卡片的摘要（用于展示） */
+  lastCardSummary?: string;
 }
 
 export const useAIStore = create<AIState>((set, get) => ({
