@@ -688,7 +688,8 @@ export function buildScheduleTime(
     const now = new Date();
     timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   } else if (!timeStr && messageText) {
-    // LLM 未抽出时间时，从原始消息兜底时段（如「下午」「晚上8点」）
+    // LLM 未抽出时间时，仅当用户明确说了具体钟点（如「3点」「15:00」）才补时间；
+    // 只说「下午/上午/中午」而不给具体钟点 → 不臆造默认时间，仅显示日期（如「周四」）
     const hmMsg = messageText.match(/(\d{1,2})\s*[：:点]\s*(\d{0,2})/);
     if (hmMsg) {
       let h = parseInt(hmMsg[1], 10);
@@ -696,12 +697,6 @@ export function buildScheduleTime(
       if (/[下晚傍]午/u.test(messageText) && h < 12) h += 12;
       if (/[上早]午/u.test(messageText) && h === 12) h = 0;
       timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    } else if (/[下晚傍]午/u.test(messageText)) {
-      timeStr = '15:00';
-    } else if (/[上早]午/u.test(messageText)) {
-      timeStr = '09:00';
-    } else if (/中午|午间/u.test(messageText)) {
-      timeStr = '12:00';
     }
   }
 
