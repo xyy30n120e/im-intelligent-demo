@@ -1,4 +1,4 @@
-# IM 演示项目（im-intelligent-demo）
+# IM 演示项目（im-intelligence-demo）
 
 基于 **Electron + React** 的桌面端 IM 工具演示，内置 AI 智能卡片能力。
 
