@@ -126,7 +126,7 @@ export const aiCards: AICard[] = [
     time: '7月1日 10:46',
     task: '准备上周运营数据',
     deadline: '7月2日 周四 15:00',
-    completed: false,
+    completed: true,
     sourceConversationId: '1',
     sourceMessageId: 'm5',
     priority: 'high',
@@ -181,5 +181,5 @@ export const aiCards: AICard[] = [
 export const scheduleItems: ScheduleItem[] = [];
 
 export const todoItems: TodoItem[] = [
-  { id: 't1', task: '准备上周运营数据', deadline: '7月2日 周四 15:00', source: '新媒体成长研习小组', completed: false, detail: '准备上周运营数据的终稿，包括数据分析、目标设定、预算规划等部分。模板已上传至共享盘。' },
+  { id: 't1', task: '准备上周运营数据', deadline: '7月2日 周四 15:00', source: '新媒体成长研习小组', completed: true, detail: '准备上周运营数据的终稿，包括数据分析、目标设定、预算规划等部分。模板已上传至共享盘。' },
 ];
