@@ -239,14 +239,23 @@ export async function analyzeChatMessage(
       source = 'llm';
       const type = llm.intent === 'none' ? null : (llm.intent as ChatIntent['type']);
       let isUpdate = !!llm.isUpdate && !!lastCard && llm.intent !== 'none';
-      // 二次校验：本地也认为当前消息确有补充字段才接受 isUpdate，避免模型误合并
-      if (isUpdate && lastCard && !mockContinuation(message, lastCard)) {
-        isUpdate = false;
+      let mergedData: Record<string, any> | null = null;
+      if (lastCard) {
+        const cont = mockContinuation(message, lastCard);
+        if (isUpdate && !cont) {
+          // 降级：LLM 说更新，但本地抽不到任何补充字段 → 视为误合并
+          isUpdate = false;
+        } else if (!isUpdate && cont) {
+          // 升级：本地确证是续写补充（抽到了字段变更），但 LLM 没判 isUpdate → 强制合并，
+          // 避免把「时间改到11:00 / 地点改到1218」这类明确修改误判成新建卡片
+          isUpdate = true;
+          mergedData = cont.merged;
+        }
       }
       result = {
         hasIntent: llm.intent !== 'none' || isUpdate,
         type: type ?? (isUpdate && lastCard ? lastCard.type : null),
-        data: (llm.extracted || null) as ParsedSchedule | ParsedTodo | ParsedRequest | null,
+        data: (mergedData ?? llm.extracted ?? null) as ParsedSchedule | ParsedTodo | ParsedRequest | null,
         confidence: llm.confidence,
         isUpdate,
         updateTargetId: isUpdate ? lastCard!.id : undefined,
