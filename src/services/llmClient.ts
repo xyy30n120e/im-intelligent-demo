@@ -75,7 +75,7 @@ const SYSTEM_PROMPT = `你是企业 IM（即时通讯）里的意图识别助手
 请只输出一个 JSON 对象（不要包含任何解释文字、不要使用 Markdown 代码块），结构如下：
 {
   "intent": "schedule" | "todo" | "request" | "none",
-  "isUpdate": true 或 false，表示当前消息是否是对「已存在的草稿卡片」的补充/修改（同一个事项的延续，例如给刚才说的会议补一个地点、参与人，或改时间/改地点）。判断规则：1) 若提供了草稿卡片且当前消息明显在补充或修改同一件事（即使当前消息本身不含「开会/会议」这类关键词），则 intent 设为与该草稿相同的类别、isUpdate 为 true，并在 extracted 中返回「合并后」的完整字段（保留草稿已有 date/time/location/participants/event 等，用新消息信息覆盖或补充）；2) 若当前消息是全新、不同的事项，则 isUpdate 为 false，按新建流程处理；3) 若无草稿且消息本身无意图，则 intent 为 none、isUpdate 为 false。
+  "isUpdate": true 或 false，表示当前消息是否是在「补充/修改已存在草稿卡片的同一件事」。请严格遵循：1) 只有当当前消息明确在给同一件事补充信息（如补充地点、参与人、改时间/改地点，或追加说明），并且你能从中抽取到至少一个要新增或变更的字段（location/participants/time/date 等）时，才给 isUpdate=true；此时 intent 设为与草稿相同的类别，extracted 返回「合并后」的完整字段（保留草稿已有字段，用新信息覆盖或补充）。2) 若当前消息是全新、不同的事项，或只是附和/确认/闲聊/表情/客套（如「好」「可以」「收到」「嗯」「👍」），isUpdate 必须为 false，并按实际情况判断 intent（可能是 none 或新建类别）。3) 仅因为「系统提供了草稿卡片」就给 isUpdate=true 是错误的——必须基于消息内容本身确有补充行为才可为 true。4) 若未提供草稿卡片，isUpdate 固定为 false。
   "confidence": 0.0 到 1.0 之间的小数，表示你对该判断的把握程度。仅当你相当确定事项已经敲定/成立时才给 >=0.8；不确定或消息含歧义时给较低值（如 0.4~0.7）；纯闲聊/问候/无 actionable 信息时给 "none" 且 confidence 可任意。
   重要：如果消息只是提议、商量、征求同意或尚未敲定（含「要不」「不如」「行不行」「可以吗」「好吗」「行吗」「建议」「提议」「考虑」「商量」「讨论」「请示」「待定」「暂定」「还没定」「未定」「大概」「可能」「或许」「大家觉得」「你们看」等），说明该事项尚未确认，应给较低 confidence（0.4~0.7），使其进入待确认流程由用户手动决定，而不是直接自动落卡。
   "extracted": {
@@ -193,14 +193,16 @@ function buildContextPrompt(
 ): string {
   let s = '';
   if (ctx?.history && ctx.history.length > 0) {
-    s += '最近对话历史：\n';
-    s += ctx.history
-      .map((h) => `${h.role === 'user' ? '用户' : '对方'}：${h.content}`)
+    // 只取最近 6 条，避免过长历史噪声干扰当前意图判断
+    const recent = ctx.history.slice(-6);
+    s += '最近对话历史（仅供背景参考，最新一条在最后）：\n';
+    s += recent
+      .map((h, i) => `${i + 1}. ${h.role === 'user' ? '用户' : '对方'}：${h.content}`)
       .join('\n');
     s += '\n';
   }
   if (ctx?.lastCard) {
-    s += `已存在的草稿卡片：\n类型：${ctx.lastCard.type}\n摘要：${ctx.lastCard.summary}\n已有字段：${JSON.stringify(ctx.lastCard.extracted)}\n`;
+    s += `已存在的草稿卡片（如当前消息明显在补充/修改它，再考虑 isUpdate）：\n类型：${ctx.lastCard.type}\n摘要：${ctx.lastCard.summary}\n已有字段：${JSON.stringify(ctx.lastCard.extracted)}\n`;
   }
   s += `当前新消息：${text}`;
   return s;

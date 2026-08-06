@@ -231,7 +231,11 @@ export async function analyzeChatMessage(
       });
       source = 'llm';
       const type = llm.intent === 'none' ? null : (llm.intent as ChatIntent['type']);
-      const isUpdate = !!llm.isUpdate && !!lastCard && llm.intent !== 'none';
+      let isUpdate = !!llm.isUpdate && !!lastCard && llm.intent !== 'none';
+      // 二次校验：本地也认为当前消息确有补充字段才接受 isUpdate，避免模型误合并
+      if (isUpdate && lastCard && !mockContinuation(message, lastCard)) {
+        isUpdate = false;
+      }
       result = {
         hasIntent: llm.intent !== 'none' || isUpdate,
         type: type ?? (isUpdate && lastCard ? lastCard.type : null),
@@ -302,10 +306,23 @@ export async function analyzeChatMessage(
   return result;
 }
 
+/** 明确「补充/修改」信号词：只有在消息里出现这些词，才认为是在续写已有卡片 */
+const SUPPLEMENT_SIGNALS =
+  /(地点|位置|参与|参加|出席|参会|加上|加个|还有|另外|补充|说明|备注|即[是为:：]|也就是|也[就是]|改[到在]|提前|推迟|换成|调整|挪|增加|追[加]|再[加备])/;
+
+/** 附和/确认/闲聊：不应并入已有卡片 */
+const ACK_WORDS =
+  /^(好|可以|行|收到|嗯|嗯嗯|好的|OK|ok|没问题|同意|明白|了解|👍|谢谢|辛苦|哈哈|是的|对|没错|可以[的]?|行[的]?)\s*[。.!！?？~～]*$/i;
+
+/** 全新意图关键词（高优先级）：出现时当作新事项，不续写旧卡片 */
+const NEW_INTENT_RE =
+  /(开会|碰一下|见面|讨论|评审|汇报|会议(?!室)|提交|报告|准备|希望|支持|添加|功能|需求|问题|请|需要|建议|申请|怎么|如何|能不能|能否|期望|想要|要求|实现|开发|优化|改进|增加|集成|方案|帮忙|协助|截图)/;
+
 /**
- * 本地 mock 续写合并：当最新消息本身不构成新意图、但明显是在补充当前会话已有的
- * 草稿卡片时，提取补充字段并合并进去。支持日程的地点/参与人/时间变更，
- * 以及待办/需求的补充说明。
+ * 本地 mock 续写合并（精准版）：仅当最新消息明确在「补充/修改」当前会话已有的草稿卡片，
+ * 且确实抽到字段变更时才合并；附和/确认/闲聊、全新事项、无补充信号的一律不合并。
+ * - schedule：地点/参与人/时间/日期变更才算续写
+ * - todo/request：仅当含明确补充信号时才把消息追加到 detail
  */
 function mockContinuation(
   text: string,
@@ -313,6 +330,13 @@ function mockContinuation(
 ): { merged: Record<string, any> } | null {
   const t = text.trim();
   if (!t) return null;
+
+  // 1) 附和/确认/闲聊（好/可以/收到/嗯/👍 等）→ 不并入
+  if (ACK_WORDS.test(t)) return null;
+  // 2) 全新意图关键词（开会/提交/需求…）→ 当作新事项，不续写
+  if (NEW_INTENT_RE.test(t)) return null;
+  // 3) 无明确补充信号 → 不续写
+  if (!SUPPLEMENT_SIGNALS.test(t)) return null;
 
   if (lastCard.type === 'schedule') {
     const merged = { ...lastCard.extracted };
