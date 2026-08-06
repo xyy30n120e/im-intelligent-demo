@@ -499,15 +499,34 @@ function extractScheduleDateTime(text: string): { date: string; time: string } {
 }
 
 /**
+ * 判断「标题/主题类字段」是否来自当前消息本身：
+ * 先直接子串匹配；再去掉常见的「关于/召开/会议/评审/讨论…」前缀后缀后取核心词匹配。
+ * 用于新建卡片时，防止模型把上一张草稿卡片的标题/主题「顺手代入」。
+ */
+function eventCore(s: string): string {
+  return s
+    .replace(/^(关于|召开|开|举办|组织|主持|进行|开展)\s*/, '')
+    .replace(/(会议|评审会|评审|讨论会|讨论|沟通会|沟通|汇报会|汇报|碰头会|碰头|例会|洽谈会|洽谈|协商会|协商|磋商会|磋商|会)$/, '')
+    .trim();
+}
+function isFieldFromText(value: string, text: string): boolean {
+  if (!value) return false;
+  if (text.includes(value)) return true;
+  const core = eventCore(value);
+  return core.length >= 2 && text.includes(core);
+}
+
+/**
  * 新建（isUpdate=false）时，对模型抽取的字段做「上下文隔离」剪枝：
- * 只保留当前消息文本本身能抽到对应 token 的字段，其余（尤其 location/participants/date/time）
+ * 只保留当前消息文本本身能抽到/提及的字段，其余（尤其 location/participants/date/time/event）
  * 一律清空，避免模型从同会话上一张草稿卡片「顺手代入」未提及的字段。
  *
  * 例：
  * - 「周四10:00开会」没提地点 → location 清空；没提参与人 → participants 清空；
  *   仅保留从文本抽到的 date(周四) / time(10:00)。
- * - 「明天下午开会」没提参与人 → participants 清空。
- * 这样新会议不会被错误地填上上一张会议的地点/参与人。
+ * - 「明天下午开会」没提参与人 → participants 清空；没提主题 → event 清空（回退为「会议」）。
+ * - 「周五15:00开会」上一张是"关于运营"的会议 → 新卡 event 不会继承"运营"，应为默认"会议"。
+ * 这样新会议不会被错误地填上上一张会议的地点/参与人/标题。
  */
 function pruneExtractedForNew(
   text: string,
@@ -522,6 +541,12 @@ function pruneExtractedForNew(
   if ('participants' in out && !hasPart) out.participants = '';
   if ('date' in out && !hasDate) out.date = '';
   if ('time' in out && !hasTime) out.time = '';
+  // 标题/主题类字段：当前消息中并未出现该标题（说明是从上一张卡片继承来的）→ 清空
+  for (const k of ['event', 'task', 'content', 'description', 'summary']) {
+    if (k in out && out[k] && typeof out[k] === 'string' && !isFieldFromText(out[k], text)) {
+      out[k] = '';
+    }
+  }
   return out;
 }
 
