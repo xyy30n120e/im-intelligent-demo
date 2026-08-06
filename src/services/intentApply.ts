@@ -6,7 +6,7 @@
  *   2) 低置信度（<80%）：用户在「待确认」选择条上手动选择目标类型后调用。
  */
 import { useAIStore } from '../store/aiStore';
-import { generateItemId, NAME_TO_ID, buildScheduleTime, summarizeFileContent } from './aiService';
+import { generateItemId, NAME_TO_ID, buildScheduleTime, summarizeFileContent, normalizeScheduleTitle } from './aiService';
 import { AICard } from '../data/aiMock';
 
 export type IntentType = 'schedule' | 'todo' | 'request';
@@ -54,7 +54,7 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
       id: cardId,
       type: 'schedule',
       source: convName,
-      event: sData.event || '会议',
+      event: normalizeScheduleTitle(msgText, sData.event),
       time: now,
       eventTime: eventTime,
       location: sData.location || '',
@@ -71,7 +71,7 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
     store.addScheduleItem({
       id: cardId,
       time: eventTime,
-      event: sData.event || '会议',
+      event: normalizeScheduleTitle(msgText, sData.event),
       location: sData.location || '',
       participants: sData.participants || '',
       source: convName,
@@ -79,7 +79,7 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
       detail: '',
       recipients,
     });
-    store.setActiveCard(convId, { id: cardId, type: 'schedule', summary: sData.event || '会议', extracted: sData });
+    store.setActiveCard(convId, { id: cardId, type: 'schedule', summary: normalizeScheduleTitle(msgText, sData.event), extracted: sData });
     return;
   }
 

@@ -551,6 +551,29 @@ function pruneExtractedForNew(
 }
 
 /**
+ * 规范化日程卡片标题：当用户在消息中明确提到「关于XX」主题时，
+ * 标题统一格式化为「关于XX的会议」，避免只显示裸主题（如「营销」）或带着动词后缀（如「关于营销开会」）。
+ * 例：
+ * - 「周四下午14:00开会，关于营销」→「关于营销的会议」
+ * - 「关于运营的会议」→「关于运营的会议」
+ * - 「周五15:00开会」（无主题）→ 回退为模型/规则抽取的标题，都没有则「会议」
+ */
+export function normalizeScheduleTitle(text: string, fallbackEvent?: string): string {
+  const m = text.match(/关于\s*([^\s，。；、,.;：:]{1,12})/);
+  if (m) {
+    let theme = m[1];
+    // 去掉主题里混入的动词/会议后缀，避免生成「关于营销开会的会议」
+    theme = theme.replace(
+      /(开会|会议|评审会|评审|讨论会|讨论|沟通会|沟通|汇报会|汇报|洽谈会|洽谈|碰头会|碰头|例会|磋商会|磋商|协商会|协商|总结|计划|安排).*$/,
+      ''
+    );
+    if (theme.length >= 2) return `关于${theme}的会议`;
+  }
+  const fb = (fallbackEvent || '').trim();
+  return fb || '会议';
+}
+
+/**
  * 转换相对日期为实际日期（"今天"→ "7月27日"）
  */
 function resolveDate(dateStr: string): string {
