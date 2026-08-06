@@ -257,9 +257,17 @@ const AiCardBubble = ({ card, linkedCard, onViewSource, onViewLinked, onViewDeta
             } catch { return null; }
           })()
         ) : isTodo ? (
-          <div className="flex items-center gap-3 py-2">
-            <span className="text-sm text-gray-500 w-24 flex-shrink-0">⏰ 截止时间</span>
-            <span className="text-sm text-gray-800 font-medium">{card.deadline}</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 py-2">
+              <span className="text-sm text-gray-500 w-24 flex-shrink-0">⏰ 截止时间</span>
+              <span className="text-sm text-gray-800 font-medium">{card.deadline || '未设置'}</span>
+            </div>
+            {card.assignee && (
+              <div className="flex items-center gap-3 py-2">
+                <span className="text-sm text-gray-500 w-24 flex-shrink-0">👤 负责人</span>
+                <span className="text-sm text-gray-800 font-medium">{card.assignee}</span>
+              </div>
+            )}
           </div>
         ) : isRequest ? (
           <div className="py-2 text-sm text-gray-600 whitespace-pre-wrap">{card.summary || card.task || card.event}</div>
@@ -1402,6 +1410,9 @@ const TodoDetail = () => {
                       <span className={overdue ? "text-red-500 font-medium" : dueSoon ? "text-amber-500 font-medium" : "text-gray-400"}>
                         {"⏰"} {item.deadline}{overdue && " · 已逾期"}
                       </span>
+                    )}
+                    {item.assignee && (
+                      <span className="text-gray-400">{"👤"} {item.assignee}</span>
                     )}
                     {item.source && (
                       canJump ? (

@@ -76,24 +76,25 @@ const SYSTEM_PROMPT = `你是企业 IM 消息解析助手。
 - request：对产品/功能/系统的诉求、反馈或缺陷，如希望增加某功能、某页面崩溃、某操作失败
 - none：闲聊、问候、无 actionable 信息
 
-请按意图类型抽取以下字段（未提及或不确定一律填 null，不要编造，也不要沿用上一条消息的字段）：
+把所有抽取到的实体放进一个 data 对象里（未提及或不确定一律填 null，不要编造，也不要沿用上一条消息的字段）：
 
 calendar：
-  title        事件名称（如「营销会议」），可留 null
-  date        日期（如「周三」「7月31日」），可留 null
-  time        时间（如「15:00」或「周三下午15:00」等自然写法），可留 null
-  location    地点（如「1218会议室」），可留 null
-  participants 参与人数组（见下方格式），可留 null
+  data.title        事件名称（如「营销会议」），可留 null
+  data.date        日期（如「周三」「7月31日」），可留 null
+  data.time        时间（如「15:00」或「周三下午15:00」等自然写法），可留 null
+  data.location    地点（如「1218会议室」），可留 null
+  data.participants 参与人数组（见下方格式），可留 null
 
 todo：
-  task        任务内容摘要
-  deadline    截止时间，可留 null
-  detail      补充说明，可留 null
+  data.title        任务内容摘要（如「整理营销方案」）
+  data.deadline     截止时间（如「下周一」「周五」「8月10日」），可留 null
+  data.assignee     被指派的人（姓名，如「小王」），可留 null；若消息用 @某人 来指派，也填该姓名
+  data.detail       补充说明，可留 null
 
 request：
-  description  需求/问题的完整描述
-  issueType   "bug" 或 "feature"
-  version     上线版本号（如「10.1.2」），可留 null
+  data.description  需求/问题的完整描述
+  data.issueType   "bug" 或 "feature"
+  data.version     上线版本号（如「10.1.2」），可留 null
 
 participants 数组元素格式：
   - 全体：  {"type":"all"}
@@ -106,16 +107,30 @@ participants 数组元素格式：
 - 若当前消息是在补充/修改前面已提到的同一件事（如给会议补地点、改时间、加参与人），isUpdate 设为 true；否则 false。
 - 必须只返回 JSON，不要任何解释文字，不要使用 Markdown 代码块。
 
+输出 JSON 示例（todo）：
+{
+  "intent": "todo",
+  "isUpdate": false,
+  "confidence": 0.95,
+  "data": {
+    "title": "整理营销方案",
+    "deadline": "下周一",
+    "assignee": "小王"
+  }
+}
+
 输出 JSON 示例（calendar）：
 {
   "intent": "calendar",
   "isUpdate": false,
   "confidence": 0.95,
-  "title": "营销会议",
-  "date": "周三",
-  "time": "15:00",
-  "location": "1218会议室",
-  "participants": [{"type":"all"}]
+  "data": {
+    "title": "营销会议",
+    "date": "周三",
+    "time": "15:00",
+    "location": "1218会议室",
+    "participants": [{"type":"all"}]
+  }
 }`
 
 function extractJson(content: string): any | null {
@@ -167,22 +182,30 @@ function normalize(raw: any): LLMIntentResult {
   const isUpdate = raw && typeof raw.isUpdate === 'boolean' ? raw.isUpdate : false;
 
   // 实体抽取结果 → 内部 extracted 结构（null / 空 → 空字符串，保持下游 prune 逻辑可用）
-  const r = raw && typeof raw === 'object' ? raw : {};
-  const str = (k: string): string => (r[k] != null && r[k] !== '' ? String(r[k]) : '');
-  const issueType = r.issueType === 'bug' ? 'bug' : r.issueType === 'feature' ? 'feature' : '';
+  // 兼容两种 JSON 写法：嵌套 data（参考用户给定格式）与旧版扁平写法
+  const src =
+    raw && typeof raw === 'object' && raw.data && typeof raw.data === 'object'
+      ? raw.data
+      : (raw && typeof raw === 'object' ? raw : {});
+  const str = (k: string): string => (src[k] != null && src[k] !== '' ? String(src[k]) : '');
+  const issueType = src.issueType === 'bug' ? 'bug' : src.issueType === 'feature' ? 'feature' : '';
   const extracted: Record<string, any> = {
-    event: str('title'),
+    event: str('title') || str('event'),
     date: str('date'),
     time: str('time'),
     location: str('location'),
-    participants: participantsToStr(r.participants),
-    task: str('task'),
+    participants: participantsToStr(src.participants),
+    // todo 优先用 task，退化为 title（模型可能返回 data.title）
+    task: str('task') || str('title'),
+    // todo 截止时间
     deadline: str('deadline'),
+    // todo 被指派的人（姓名）
+    assignee: str('assignee'),
     detail: str('detail'),
     description: str('description'),
     issueType,
     version: str('version'),
-    content: str('content') || str('title') || str('description'),
+    content: str('content') || str('title') || str('description') || str('task'),
   };
   return { intent, confidence, extracted, isUpdate };
 }

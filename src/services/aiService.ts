@@ -35,7 +35,7 @@ export type ParsedResult = ParsedSchedule | ParsedTodo | ParsedRequest;
 // 注意：用正则而非 includes，因为「会议」会误命中「会议室」（补充地点的续写消息），
 // 故对「会议」加负向先行断言 (?!室)，避免把「地点在1218会议室」判成新日程。
 const SCHEDULE_RE = /开会|碰一下|见面|讨论|评审|汇报|会议(?!室)/;
-const TODO_KEYWORDS = ['提交', '报告', '准备'];
+const TODO_KEYWORDS = ['提交', '报告', '准备', '整理', '跟进', '完成', '撰写', '写'];
 const REQUEST_KEYWORDS = ['希望', '支持', '添加', '功能', '需求', '问题', '请', '需要', '建议', '申请', '怎么', '如何', '能不能', '能否', '期望', '想要', '要求', '实现', '开发', '优化', '改进', '增加', '集成', '方案', '帮忙', '协助', '截图', '鸿蒙'];
 
 // ── 去重状态 ──
@@ -730,6 +730,35 @@ export function buildScheduleTime(
 }
 
 /**
+ * 归一化「待办截止时间」：把模型/规则抽取出的相对日期（"下周一"、"周五"、"今天"、
+ * "8月10日"，或带钟点如"下周一 15:00"）统一转成日历能识别的 "M月D日 周X [HH:MM]"。
+ * 与 buildScheduleTime 共用同一套日期/时间归一逻辑，保证待办与日程显示格式一致。
+ *
+ * - 优先用抽取出的 deadline 字段；
+ * - 若 deadline 为空但消息本身含相对日期（如「周五前交」），则从消息文本兜底；
+ * - 完全没有时间信息 → 返回空串（不臆造默认时间）。
+ */
+export function buildTodoDeadline(
+  extracted: Record<string, any> | null | undefined,
+  messageText?: string
+): string {
+  const e = extracted || {};
+  let raw = e.deadline ? String(e.deadline) : '';
+  if (!raw && messageText) {
+    const relMsg = messageText.match(
+      /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?:\d+)\s*[月./\-]\s*\d+\s*[日号]?)/
+    );
+    if (relMsg) raw = relMsg[1];
+  }
+  if (!raw) return '';
+
+  // 把 deadline 中的钟点（如 "15:00"/"15点"）拆出来，日期部分交给 buildScheduleTime 归一
+  const tm = raw.match(/(\d{1,2})\s*[：:点]\s*(\d{0,2})/);
+  const datePart = raw.replace(tm?.[0] || '', '').trim();
+  return buildScheduleTime({ date: datePart || raw, time: tm ? tm[0] : '' }, messageText);
+}
+
+/**
  * 生成上传文件的「内容概要」：
  * - 配了 LLM Key 且文件为可读取文本时，调用大模型用 2~3 句话概括核心内容；
  * - 未配 Key（或文本为空）时，用原文前 200 字作为概要兜底；
@@ -857,23 +886,45 @@ export const NAME_TO_ID: Record<string, string> = (() => {
  * @param memberIds  当前群组的成员 userId 列表
  * @param senderId   发送者（当前账号）userId
  */
+/**
+ * 提取消息里 @ 提及的具体人名（排除 @所有人）。用于「负责人」展示与指派判断。
+ */
+export function mentionNames(content: string): string[] {
+  return [...content.matchAll(/@([^\s@]+)/g)]
+    .map((m) => m[1])
+    .filter((n) => n && n !== '所有人');
+}
+
+/**
+ * 计算一条 AI 卡片 / 日程 / 待办 的接收人（userId 列表）。
+ *
+ * 规则：
+ * - 无 @ 提及，或包含「@所有人」 → 群内所有成员都能收到（含发送者）。
+ * - 指定 @某人（如「@小王」）→ 仅被 @人收到，**发送者不收**。
+ *   例：用户A给用户B发送待办并@B，只有B收到 AI 卡片，A 不会收到。
+ *
+ * @param content    用户发送的消息文本
+ * @param memberIds  当前群组的成员 userId 列表
+ * @param senderId   发送者（当前账号）userId
+ */
 export function computeRecipients(content: string, memberIds: string[], senderId: string): string[] {
   const mentions = [...content.matchAll(/@([^\s@]+)/g)].map((m) => m[1]);
   const hasAll = mentions.includes('所有人');
 
-  // 无 @ 或 @所有人 → 全员
+  // 无 @ 或 @所有人 → 全员（含发送者）
   if (hasAll || mentions.length === 0) {
     return memberIds.length ? [...memberIds] : [senderId];
   }
 
-  const ids = new Set<string>([senderId]);
+  // 指定 @某人 → 仅被 @人收到，发送者不收
+  const ids = new Set<string>();
   mentions.forEach((name) => {
     const id = NAME_TO_ID[name];
     if (id) ids.add(id);
   });
 
-  // 提及存在但没有解析到任何有效成员（如 @了不存在的人）→ 退化为全员
-  if (ids.size === 1 && !memberIds.includes(senderId)) {
+  // 提及存在但没有解析到任何有效成员（如 @了不存在的人）→ 退化为全员（含发送者）
+  if (ids.size === 0) {
     return memberIds.length ? [...memberIds] : [senderId];
   }
 
