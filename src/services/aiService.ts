@@ -252,10 +252,16 @@ export async function analyzeChatMessage(
           mergedData = cont.merged;
         }
       }
+      // 新建（非续写合并）时，对模型抽取的字段做上下文隔离剪枝：只保留当前消息本身
+      // 能抽到的字段，避免从同会话上一张卡片「顺手代入」未提及的地点/参与人/时间等
+      const finalData: Record<string, any> | null =
+        !isUpdate && llm.extracted
+          ? pruneExtractedForNew(message, llm.extracted as Record<string, any>)
+          : (mergedData ?? llm.extracted ?? null);
       result = {
         hasIntent: llm.intent !== 'none' || isUpdate,
         type: type ?? (isUpdate && lastCard ? lastCard.type : null),
-        data: (mergedData ?? llm.extracted ?? null) as ParsedSchedule | ParsedTodo | ParsedRequest | null,
+        data: finalData as ParsedSchedule | ParsedTodo | ParsedRequest | null,
         confidence: llm.confidence,
         isUpdate,
         updateTargetId: isUpdate ? lastCard!.id : undefined,
@@ -475,6 +481,33 @@ function extractScheduleDateTime(text: string): { date: string; time: string } {
   if (dt) out.date = dt[1];
   const tm = text.match(/(\d{1,2})[：:点](\d{0,2})/);
   if (tm) out.time = `${tm[1]}:${tm[2] || '00'}`;
+  return out;
+}
+
+/**
+ * 新建（isUpdate=false）时，对模型抽取的字段做「上下文隔离」剪枝：
+ * 只保留当前消息文本本身能抽到对应 token 的字段，其余（尤其 location/participants/date/time）
+ * 一律清空，避免模型从同会话上一张草稿卡片「顺手代入」未提及的字段。
+ *
+ * 例：
+ * - 「周四10:00开会」没提地点 → location 清空；没提参与人 → participants 清空；
+ *   仅保留从文本抽到的 date(周四) / time(10:00)。
+ * - 「明天下午开会」没提参与人 → participants 清空。
+ * 这样新会议不会被错误地填上上一张会议的地点/参与人。
+ */
+function pruneExtractedForNew(
+  text: string,
+  extracted: Record<string, any>
+): Record<string, any> {
+  const out = { ...extracted };
+  const hasDate = /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(\d+)\s*[月./\-]\s*\d+\s*[日号]?)/.test(text);
+  const hasTime = TIME_TOKEN_RE.test(text);
+  const hasLoc = extractLocation(text) !== null;
+  const hasPart = extractParticipants(text) !== null;
+  if ('location' in out && !hasLoc) out.location = '';
+  if ('participants' in out && !hasPart) out.participants = '';
+  if ('date' in out && !hasDate) out.date = '';
+  if ('time' in out && !hasTime) out.time = '';
   return out;
 }
 

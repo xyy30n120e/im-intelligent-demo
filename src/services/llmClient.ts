@@ -96,7 +96,8 @@ const SYSTEM_PROMPT = `你是企业 IM（即时通讯）里的意图识别助手
 注意：
 - 仅当 intent 为 none 时，extracted 可留空对象 {}。
 - 日期/时间尽量从原文推断；推断不出就留空字符串，不要编造。
-- 全部使用中文。`;
+- 全部使用中文。
+- 当 isUpdate 为 false（新建或 none）时，extracted 里的 date/time/location/participants/version 等字段**只能来自当前新消息文本本身**，严禁把草稿卡片已有、但当前消息未提及的字段代入（例如当前消息没提地点，location 必须留空字符串，不得沿用草稿卡片的地点；没提参与人同理）。`
 
 function extractJson(content: string): any | null {
   if (!content) return null;
