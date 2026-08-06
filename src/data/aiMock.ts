@@ -35,8 +35,6 @@ export interface AICard {
   time: string;
   task?: string;
   deadline?: string;
-  /** 待办/需求的负责人（被指派的人姓名），仅作展示；实际接收人由 recipients 决定 */
-  assignee?: string;
   completed?: boolean;
   event?: string;
   summary?: string;
@@ -88,8 +86,6 @@ export interface TodoItem {
   id: string;
   task: string;
   deadline: string;
-  /** 负责人（被指派的人姓名），仅作展示 */
-  assignee?: string;
   source: string;
   completed: boolean;
   detail?: string;

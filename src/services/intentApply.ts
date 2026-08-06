@@ -6,7 +6,7 @@
  *   2) 低置信度（<80%）：用户在「待确认」选择条上手动选择目标类型后调用。
  */
 import { useAIStore } from '../store/aiStore';
-import { generateItemId, NAME_TO_ID, buildScheduleTime, buildTodoDeadline, mentionNames, summarizeFileContent, normalizeScheduleTitle } from './aiService';
+import { generateItemId, NAME_TO_ID, buildScheduleTime, buildTodoDeadline, summarizeFileContent, normalizeScheduleTitle } from './aiService';
 import { AICard } from '../data/aiMock';
 
 export type IntentType = 'schedule' | 'todo' | 'request';
@@ -86,14 +86,12 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
   if (type === 'todo') {
     const tData = extracted || {};
     const deadline = buildTodoDeadline(tData, msgText);
-    const assignee = mentionNames(msgText).join('、') || (tData.assignee || '');
     const card: AICard = {
       id: cardId,
       type: 'todo',
       source: convName,
       task: tData.task || msgText,
       deadline,
-      assignee,
       time: now,
       sourceConversationId: convId,
       sourceMessageId: userMsgId,
@@ -107,7 +105,6 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
       id: cardId,
       task: tData.task || msgText,
       deadline,
-      assignee,
       source: convName,
       completed: false,
       detail: tData.detail || '',

@@ -4,7 +4,7 @@ import { Message, FileMeta, formatSize, resolveFileKind } from '../data/mockData
 import { FileIcon } from './FileIcon';
 import { FilePreviewModal } from './FilePreviewModal';
 import { useAIStore } from '../store/aiStore';
-import { analyzeChatMessage, generateItemId, getCurrentTimeStr, computeRecipients, NAME_TO_ID, buildScheduleTime, buildTodoDeadline, mentionNames, summarizeFileContent, isExplicitNewIntent, type ChatIntent } from '../services/aiService';
+import { analyzeChatMessage, generateItemId, getCurrentTimeStr, computeRecipients, NAME_TO_ID, buildScheduleTime, buildTodoDeadline, summarizeFileContent, isExplicitNewIntent, type ChatIntent } from '../services/aiService';
 import { IntentConfirmBar } from './IntentConfirmBar';
 import { applyUpdateToCard } from '../services/intentApply';
 import { AICard } from '../data/aiMock';
@@ -455,14 +455,12 @@ const RightPanel: React.FC = () => {
         } else if (intent.type === 'todo') {
           const tData = intent.data as any;
           const deadline = buildTodoDeadline(tData, msgText);
-          const assignee = mentionNames(msgText).join('、') || (tData.assignee || '');
           const card: AICard = {
             id: cardId,
             type: 'todo',
             source: currentConv.name,
             task: tData.task,
             deadline,
-            assignee,
             time: now,
             sourceConversationId: convId,
             sourceMessageId: userMsgId,
@@ -476,7 +474,6 @@ const RightPanel: React.FC = () => {
             id: cardId,
             task: tData.task,
             deadline,
-            assignee,
             source: currentConv.name,
             completed: false,
             detail: tData.detail || '',

@@ -88,7 +88,6 @@ calendar：
 todo：
   data.title        任务内容摘要（如「整理营销方案」）
   data.deadline     截止时间（如「下周一」「周五」「8月10日」），可留 null
-  data.assignee     被指派的人（姓名，如「小王」），可留 null；若消息用 @某人 来指派，也填该姓名
   data.detail       补充说明，可留 null
 
 request：
@@ -114,8 +113,7 @@ participants 数组元素格式：
   "confidence": 0.95,
   "data": {
     "title": "整理营销方案",
-    "deadline": "下周一",
-    "assignee": "小王"
+    "deadline": "下周一"
   }
 }
 
@@ -199,8 +197,6 @@ function normalize(raw: any): LLMIntentResult {
     task: str('task') || str('title'),
     // todo 截止时间
     deadline: str('deadline'),
-    // todo 被指派的人（姓名）
-    assignee: str('assignee'),
     detail: str('detail'),
     description: str('description'),
     issueType,
