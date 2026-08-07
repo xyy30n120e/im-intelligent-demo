@@ -38,6 +38,13 @@ const SCHEDULE_RE = /开会|碰一下|见面|讨论|评审|汇报|会议(?!室)/
 const TODO_KEYWORDS = ['提交', '报告', '准备', '整理', '跟进', '完成', '撰写', '写'];
 const REQUEST_KEYWORDS = ['希望', '支持', '添加', '功能', '需求', '问题', '请', '需要', '建议', '申请', '怎么', '如何', '能不能', '能否', '期望', '想要', '要求', '实现', '开发', '优化', '改进', '增加', '集成', '方案', '帮忙', '协助', '截图', '鸿蒙'];
 
+// 日期片段正则：匹配「M月D日 / M.D / M/D / M-D」。
+// 关键：用前后向断言排除「版本号」（如 10.2.6 / 1.2.3）——避免把三段式版本号误判成「10月2日」。
+//   前导 (?<!\d\.)  → 第一个数字前不能是「数字.」（如 10.2 里的 2 前是 .，则 2.6 不算日期）
+//   后向 (?!\.\d)   → 第二个数字后不能是「.数字」（如 10.2 里的 2 后是 .6，则 10.2 不算日期）
+// 单独出现的「10.2」仍按日期处理（保持兼容），仅嵌在更长版本号里才排除。
+const DATE_FRAG_RE = /(?<!\d\.)(\d{1,2})\s*[月/.\-]\s*(\d{1,2})(?!\.\d)\s*[日号]?/;
+
 // ── 去重状态 ──
 const DEDUP_WINDOW_MS = 30000; // 30秒窗口内相同类型去重
 
@@ -533,7 +540,7 @@ function pruneExtractedForNew(
   extracted: Record<string, any>
 ): Record<string, any> {
   const out = { ...extracted };
-  const hasDate = /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(\d+)\s*[月./\-]\s*\d+\s*[日号]?)/.test(text);
+  const hasDate = /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?<!\d\.)\d{1,2}\s*[月/.\-]\s*\d{1,2}(?!\.\d)\s*[日号]?)/.test(text);
   const hasTime = TIME_TOKEN_RE.test(text);
   const hasLoc = extractLocation(text) !== null;
   const hasPart = extractParticipants(text) !== null;
@@ -668,7 +675,7 @@ export function buildScheduleTime(
   if (iso) {
     dateStr = `${parseInt(iso[2], 10)}月${parseInt(iso[3], 10)}日`;
   } else {
-    const md = rawDate.match(/(\d{1,2})\s*[月/.\-]\s*(\d{1,2})\s*[日号]?/);
+    const md = rawDate.match(DATE_FRAG_RE);
     if (md) {
       dateStr = `${parseInt(md[1], 10)}月${parseInt(md[2], 10)}日`;
     } else if (rawDate && /[今明后周下]/u.test(rawDate)) {
@@ -678,7 +685,7 @@ export function buildScheduleTime(
       dateStr = resolveDate(rawTime.trim());
     } else if (messageText) {
       // LLM 未抽出日期时，从原始消息文本兜底（如「周四下午开会」→ 本周四）
-      const mdMsg = messageText.match(/(\d{1,2})\s*[月/.\-]\s*(\d{1,2})\s*[日号]?/);
+      const mdMsg = messageText.match(DATE_FRAG_RE);
       const relMsg = messageText.match(/(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日])/);
       if (mdMsg) {
         dateStr = `${parseInt(mdMsg[1], 10)}月${parseInt(mdMsg[2], 10)}日`;
@@ -746,7 +753,7 @@ export function buildTodoDeadline(
   let raw = e.deadline ? String(e.deadline) : '';
   if (!raw && messageText) {
     const relMsg = messageText.match(
-      /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?:\d+)\s*[月./\-]\s*\d+\s*[日号]?)/
+      /(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?<!\d\.)\d{1,2}\s*[月/.\-]\s*\d{1,2}(?!\.\d)\s*[日号]?)/
     );
     if (relMsg) raw = relMsg[1];
   }
