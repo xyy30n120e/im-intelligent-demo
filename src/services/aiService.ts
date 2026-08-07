@@ -34,7 +34,7 @@ export type ParsedResult = ParsedSchedule | ParsedTodo | ParsedRequest;
 // ── 关键词配置 ──
 // 注意：用正则而非 includes，因为「会议」会误命中「会议室」（补充地点的续写消息），
 // 故对「会议」加负向先行断言 (?!室)，避免把「地点在1218会议室」判成新日程。
-const SCHEDULE_RE = /开会|碰一下|见面|讨论|评审|汇报|会议(?!室)/;
+const SCHEDULE_RE = /开会|碰一下|见面|讨论|评审|汇报|会议(?!室)|沟通|洽谈|碰头|对齐|同步|商议|站会|复盘|早会|例会|晨会|周会|月会|年会|碰面/;
 const TODO_KEYWORDS = ['提交', '报告', '准备', '整理', '跟进', '完成', '撰写', '写'];
 const REQUEST_KEYWORDS = ['希望', '支持', '添加', '功能', '需求', '问题', '请', '需要', '建议', '申请', '怎么', '如何', '能不能', '能否', '期望', '想要', '要求', '实现', '开发', '优化', '改进', '增加', '集成', '方案', '帮忙', '协助', '截图', '鸿蒙'];
 
@@ -132,17 +132,19 @@ function mockParse(input: string): ParsedResult {
   const trimmed = input.trim();
   const intent = classifyIntent(trimmed);
 
-  const dateMatch = trimmed.match(/(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?:\d+)[月][\d]+[日号])/);
+  const dateMatch = trimmed.match(/(今天|今晚|明天|明晚|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?:\d+)[月][\d]+[日号])/);
   const timeMatch = trimmed.match(/(\d{1,2})[：:点](\d{0,2})/);
 
   if (intent === 'schedule') {
+    const loc = extractLocation(trimmed);
+    const parts = extractParticipants(trimmed);
     return {
       type: 'schedule' as const,
-      event: trimmed.substring(0, 30),
+      event: '',
       date: resolveDate(dateMatch?.[1] || '今天'),
       time: timeMatch ? `${timeMatch[1]}:${timeMatch[2] || '00'}` : '',
-      location: '',
-      participants: '',
+      location: loc || '',
+      participants: parts || '',
     };
   }
 
@@ -372,7 +374,7 @@ const ACK_WORDS =
 
 /** 全新意图关键词（高优先级）：出现时当作新事项，不续写旧卡片 */
 const NEW_INTENT_RE =
-  /(开会|碰一下|见面|讨论|评审|汇报|会议(?!室)|提交|报告|准备|希望|支持|添加|功能|需求|问题|请|需要|建议|申请|怎么|如何|能不能|能否|期望|想要|要求|实现|开发|优化|改进|增加|集成|方案|帮忙|协助|截图)/;
+  /(开会|碰一下|见面|讨论|评审|汇报|会议(?!室)|沟通|洽谈|碰头|对齐|同步|商议|站会|复盘|早会|例会|晨会|周会|月会|年会|碰面|提交|报告|准备|希望|支持|添加|功能|需求|问题|请|需要|建议|申请|怎么|如何|能不能|能否|期望|想要|要求|实现|开发|优化|改进|增加|集成|方案|帮忙|协助|截图)/;
 
 /**
  * 本地 mock 续写合并（精准版）：仅当最新消息明确在「补充/修改」当前会话已有的草稿卡片，
@@ -475,14 +477,19 @@ export function isAmbiguousUpdate(
   return hasUpdateSignal || hasFieldToken;
 }
 
-/** 抽取地点：地点在1218会议室 / 1218号会议室 / 会议室A / 3楼房间 */
-function extractLocation(text: string): string | null {
+/** 抽取地点：地点在1218会议室 / 1218号会议室 / 3楼会议室 / B201 / 会议室A / X号楼 */
+export function extractLocation(text: string): string | null {
   let m: RegExpMatchArray | null;
   if ((m = text.match(/地点[是为在:：]?\s*([^\s,，。;；]+)/))) return m[1];
-  if ((m = text.match(/([A-Za-z0-9\-]+)\s*号?\s*会议室/))) return `${m[1]}号会议室`;
-  if ((m = text.match(/会议室\s*([A-Za-z0-9\-]+)/))) return `会议室${m[1]}`;
+  if ((m = text.match(/([A-Za-z0-9\-]+)\s*号?\s*会议室/))) return `${m[1]}号会议室`; // 1218会议室
+  if ((m = text.match(/([A-Za-z0-9\-]+)\s*楼\s*会议室/))) return `${m[1]}楼会议室`; // 3楼会议室
+  if ((m = text.match(/([A-Za-z0-9\-]+)\s*号楼/))) return `${m[1]}号楼`; // 2号楼
+  if ((m = text.match(/会议室\s*([A-Za-z0-9\-]+)/))) return `会议室${m[1]}`; // 会议室A
+  if ((m = text.match(/([A-Za-z0-9\-]+)\s*座\s*\d{0,4}/))) return m[0]; // A座501 / B座
   if ((m = text.match(/([A-Za-z0-9\-]+)\s*号?\s*房间/))) return `${m[1]}号房间`;
   if ((m = text.match(/([A-Za-z0-9\-]+)\s*号?\s*室\b/))) return `${m[1]}室`;
+  // 字母+数字房间号（如 B201 / A305），作为独立 token 出现（前后为逗号/空格/起止）
+  if ((m = text.match(/(?:^|[\s，,；;、])([A-Za-z]\d{2,4})(?:[\s，,；;、]|$)/))) return m[1];
   if (text.includes('会议室') || text.includes('房间') || text.includes('室')) {
     const cleaned = text.replace(/^(地点|在|是|为)\s*/, '').replace(/[。；;，,]$/, '');
     if (cleaned.length > 0 && cleaned.length <= 24) return cleaned;
@@ -491,7 +498,7 @@ function extractLocation(text: string): string | null {
 }
 
 /** 抽取参与人：@提及 或 「参加/出席/一起 + 名字」 */
-function extractParticipants(text: string): string | null {
+export function extractParticipants(text: string): string | null {
   const ats = [...text.matchAll(/@([^\s@]+)/g)].map((m) => m[1]);
   if (ats.length) return ats.join('，');
   const m = text.match(/(?:参加|出席|参会|与会|一起|参与)[人者]?[是为:：]?\s*([^\s,，。;；]+)/);
@@ -563,24 +570,63 @@ function pruneExtractedForNew(
 }
 
 /**
- * 规范化日程卡片标题：当用户在消息中明确提到「关于XX」主题时，
- * 标题统一格式化为「关于XX的会议」，避免只显示裸主题（如「营销」）或带着动词后缀（如「关于营销开会」）。
+ * 从消息文本中抽取「会议主题/内容」（去掉「的」、会议类型后缀后，作为「关于XX」的 XX）。
+ * 支持多种说法：
+ * - 关于XX：           「关于运营」/「关于鸿蒙适配的评审会」→ 运营 / 鸿蒙适配
+ * - 讨论/聊聊/沟通XX：  「讨论营销方案」「聊聊下个版本规划」→ 营销方案 / 下个版本规划
+ * - XX + 会议类型后缀： 「鸿蒙适配评审会」「版本规划沟通会」→ 鸿蒙适配 / 版本规划
+ * 抽不到返回 null（由调用方回退为模型/规则标题或「会议」）。
+ */
+function cleanTopic(s: string): string {
+  let t = (s || '').trim();
+  // 去掉开头的语气/方式修饰（聊一下、咱们、线上/线下…），避免混入标题
+  t = t.replace(/^(一下|一聊|聊聊|咱们|我们|大家|简单|稍微|线上|线下|远程|视频|电话|口头)/, '');
+  // 去掉结尾的「的」（避免「鸿蒙适配的」→ 生成「关于鸿蒙适配的的会议」）
+  t = t.replace(/的$/, '');
+  // 去掉残留的会议类型 / 动词后缀（注意：方案/规划/事项 属主题内容，不能删）
+  t = t.replace(
+    /(开会|会议|评审会|评审|讨论会|讨论|沟通会|沟通|汇报会|汇报|洽谈会|洽谈|碰头会|碰头|例会|磋商会|磋商|协商会|协商|总结|计划|安排)$/,
+    ''
+  );
+  // 再清一次结尾的「的」
+  t = t.replace(/的$/, '');
+  return t;
+}
+
+function extractMeetingTopic(text: string): string | null {
+  // 1) 关于 / 有关 XX（可带「的评审会」等后缀）；排除「点」避免把时间点当主题
+  let m = text.match(/关于\s*([^\s，。；、,.;：:点]{1,12})/);
+  if (m) {
+    const t = cleanTopic(m[1]);
+    if (t.length >= 2) return t;
+  }
+  // 2) 讨论 / 聊聊 / 沟通 / 同步 / 聊 XX（到逗号/句号/结束）
+  m = text.match(/(?:讨论|聊聊|沟通|研究|商讨|商量|谈一谈|谈谈|聊一聊|同步|聊)\s*([^\s，。；、,.;：:点]{1,15})/);
+  if (m) {
+    const t = cleanTopic(m[1]);
+    if (t.length >= 2) return t;
+  }
+  // 3) XX + 会议类型后缀（鸿蒙适配评审会 → 鸿蒙适配；迭代站会 → 迭代）
+  m = text.match(/([^\s，。；、,.;：:点]{1,12})(?:评审会|评审|讨论会|讨论|沟通会|沟通|汇报会|汇报|碰头会|碰头|例会|洽谈会|洽谈|磋商会|磋商|协商会|协商|站会|早会|晨会|周会|月会|年会|复盘会|复盘)/);
+  if (m) {
+    const t = cleanTopic(m[1]);
+    if (t.length >= 2) return t;
+  }
+  return null;
+}
+
+/**
+ * 规范化日程卡片标题：当用户在消息中明确提到会议主题/内容时，
+ * 标题统一格式化为「关于XX的会议」，覆盖多种表述（关于X / 讨论X / X评审会 等）。
  * 例：
- * - 「周四下午14:00开会，关于营销」→「关于营销的会议」
- * - 「关于运营的会议」→「关于运营的会议」
+ * - 「周五15:00开会，关于运营」→「关于运营的会议」
+ * - 「关于鸿蒙适配的评审会」→「关于鸿蒙适配的会议」（不再多一个「的」）
+ * - 「开会讨论营销方案」→「关于营销方案的会议」
  * - 「周五15:00开会」（无主题）→ 回退为模型/规则抽取的标题，都没有则「会议」
  */
 export function normalizeScheduleTitle(text: string, fallbackEvent?: string): string {
-  const m = text.match(/关于\s*([^\s，。；、,.;：:]{1,12})/);
-  if (m) {
-    let theme = m[1];
-    // 去掉主题里混入的动词/会议后缀，避免生成「关于营销开会的会议」
-    theme = theme.replace(
-      /(开会|会议|评审会|评审|讨论会|讨论|沟通会|沟通|汇报会|汇报|洽谈会|洽谈|碰头会|碰头|例会|磋商会|磋商|协商会|协商|总结|计划|安排).*$/,
-      ''
-    );
-    if (theme.length >= 2) return `关于${theme}的会议`;
-  }
+  const topic = extractMeetingTopic(text);
+  if (topic && topic.length >= 2) return `关于${topic}的会议`;
   const fb = (fallbackEvent || '').trim();
   return fb || '会议';
 }
@@ -597,10 +643,10 @@ function resolveDate(dateStr: string): string {
     return (d.getMonth() + 1) + '月' + d.getDate() + '日 周' + weekdayNames[d.getDay()];
   };
 
-  if (dateStr === '今天') {
+  if (dateStr === '今天' || dateStr === '今晚') {
     return fmt(today);
   }
-  if (dateStr === '明天') {
+  if (dateStr === '明天' || dateStr === '明晚') {
     const d = new Date(today);
     d.setDate(d.getDate() + 1);
     return fmt(d);
@@ -663,6 +709,27 @@ function resolveDate(dateStr: string): string {
 /** 表示「现在/立刻/马上」等即时语义的关键词 */
 const NOW_WORDS = /(现在|立刻|立即|马上|立马|这就|当下|此刻|这会儿|这阵子)/;
 
+/**
+ * 按时段修饰词修正小时：12 小时制（如「下午2点」「早上9点」）需要转成 24 小时。
+ * - 优先看 rawTime 自身是否带「下午/晚上/上午」；
+ * - rawTime 没有时，回退到原始消息文本，并在该时间数字「就近」的左侧上下文里找修饰词，
+ *   避免「上午10点，下午3点」这类多时间点被错误统一加上 12。
+ * h >= 12 视为已是 24 小时制，直接返回。
+ */
+function applyAmPm(h: number, rawTime: string, messageText?: string): number {
+  if (h >= 12) return h;
+  if (/[下晚傍]/u.test(rawTime)) return h + 12;
+  if (/[上早]/u.test(rawTime) && h === 12) return 0;
+  if (messageText) {
+    const tokenRe = new RegExp(`(\\D{0,5})${h}\\s*[：:点]`);
+    const mm = messageText.match(tokenRe);
+    const before = mm ? mm[1] : messageText;
+    if (/[下晚傍]/.test(before)) return h + 12;
+    if (/[上早]/.test(before) && h === 12) return 0;
+  }
+  return h;
+}
+
 export function buildScheduleTime(
   extracted: Record<string, any> | null | undefined,
   messageText?: string
@@ -691,7 +758,7 @@ export function buildScheduleTime(
     } else if (messageText) {
       // LLM 未抽出日期时，从原始消息文本兜底（如「周四下午开会」→ 本周四）
       const mdMsg = messageText.match(DATE_FRAG_RE);
-      const relMsg = messageText.match(/(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日])/);
+      const relMsg = messageText.match(/(今天|今晚|明天|明晚|后天|下周[一二三四五六日]?|周[一二三四五六日])/);
       if (mdMsg) {
         dateStr = `${parseInt(mdMsg[1], 10)}月${parseInt(mdMsg[2], 10)}日`;
       } else if (relMsg) {
@@ -717,8 +784,7 @@ export function buildScheduleTime(
   if (hm) {
     let h = parseInt(hm[1], 10);
     const m = parseInt(hm[2] || '0', 10);
-    if (/[下晚傍]午/u.test(rawTime) && h < 12) h += 12;
-    if (/[上早]午/u.test(rawTime) && h === 12) h = 0;
+    h = applyAmPm(h, rawTime, messageText);
     timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   } else if (NOW_WORDS.test(ctx) && datePlain === today) {
     // 时间是「现在」且日期为今天：写入当前时刻，而不是落下日期-only
@@ -732,8 +798,8 @@ export function buildScheduleTime(
     if (hmMsg) {
       let h = parseInt(hmMsg[1], 10);
       const m = parseInt(hmMsg[2] || '0', 10);
-      if (/[下晚傍]午/u.test(messageText) && h < 12) h += 12;
-      if (/[上早]午/u.test(messageText) && h === 12) h = 0;
+      // rawTime 传空，仅靠 messageText 就近判断（避免多时间点被全局「下午」误加 12）
+      h = applyAmPm(h, '', messageText);
       timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     }
   }
@@ -804,7 +870,7 @@ export async function summarizeFileContent(meta: {
  * Mock 聊天意图分析
  * 关键词分类 + 优先级去重 + 连续消息去重
  */
-function mockChatAnalysis(message: string, _conversationName: string): ChatIntent {
+export function mockChatAnalysis(message: string, _conversationName: string): ChatIntent {
   const trimmed = message.trim();
   const intent = classifyIntent(trimmed);
 
@@ -812,20 +878,25 @@ function mockChatAnalysis(message: string, _conversationName: string): ChatInten
     return { hasIntent: false, type: null, data: null };
   }
 
-  const dateMatch = trimmed.match(/(今天|明天|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?:\d+)[月][\d]+[日号])/);
+  const dateMatch = trimmed.match(/(今天|今晚|明天|明晚|后天|下周[一二三四五六日]?|周[一二三四五六日]|(?:\d+)[月][\d]+[日号])/);
   const timeMatch = trimmed.match(/(\d{1,2})[：:点](\d{0,2})/);
 
   if (intent === 'schedule') {
+    // 标题交给 normalizeScheduleTitle 从消息文本生成（支持「关于X/讨论X/X评审会」等多种主题），
+    // 这里 event 留空，避免把整句话当成标题；地点/参与人用与续写合并一致的抽取器，
+    // 保证「未配大模型 Key」的纯本地模式下也能识别 1218会议室 / @提及 人。
+    const loc = extractLocation(trimmed);
+    const parts = extractParticipants(trimmed);
     return {
       hasIntent: true,
       type: 'schedule',
       data: {
         type: 'schedule',
-        event: trimmed.substring(0, 30),
+        event: '',
         date: resolveDate(dateMatch?.[1] || '今天'),
         time: timeMatch ? `${timeMatch[1]}:${timeMatch[2] || '00'}` : '',
-        location: '',
-        participants: '',
+        location: loc || '',
+        participants: parts || '',
       },
     };
   }
