@@ -6,7 +6,7 @@
  *   2) 低置信度（<80%）：用户在「待确认」选择条上手动选择目标类型后调用。
  */
 import { useAIStore } from '../store/aiStore';
-import { generateItemId, NAME_TO_ID, buildScheduleTime, buildTodoDeadline, summarizeFileContent, normalizeScheduleTitle } from './aiService';
+import { generateItemId, NAME_TO_ID, buildScheduleTime, buildTodoDeadline, summarizeFileContent, normalizeScheduleTitle, extractLocation, extractParticipants } from './aiService';
 import { AICard } from '../data/aiMock';
 
 export type IntentType = 'schedule' | 'todo' | 'request';
@@ -50,6 +50,9 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
   if (type === 'schedule') {
     const sData = extracted || {};
     const eventTime = buildScheduleTime(sData, msgText);
+    // 地点/参与人：优先用模型抽取结果，模型漏抽时用本地规则从原文兜底，避免「1218会议室」丢失
+    const loc = sData.location || extractLocation(msgText) || '';
+    const parts = sData.participants || extractParticipants(msgText) || '';
     const card: AICard = {
       id: cardId,
       type: 'schedule',
@@ -57,8 +60,8 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
       event: normalizeScheduleTitle(msgText, sData.event),
       time: now,
       eventTime: eventTime,
-      location: sData.location || '',
-      participants: sData.participants || '',
+      location: loc,
+      participants: parts,
       status: 'pending',
       sourceConversationId: convId,
       sourceMessageId: userMsgId,
@@ -72,8 +75,8 @@ export async function applyIntent(opts: ApplyIntentOptions): Promise<void> {
       id: cardId,
       time: eventTime,
       event: normalizeScheduleTitle(msgText, sData.event),
-      location: sData.location || '',
-      participants: sData.participants || '',
+      location: loc,
+      participants: parts,
       source: convName,
       status: 'pending',
       detail: '',

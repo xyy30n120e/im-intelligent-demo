@@ -46,7 +46,9 @@ const REQUEST_KEYWORDS = ['希望', '支持', '添加', '功能', '需求', '问
 const DATE_FRAG_RE = /(?<!\d\.)(\d{1,2})\s*[月/.\-]\s*(\d{1,2})(?!\.\d)\s*[日号]?/;
 
 // ── 去重状态 ──
-const DEDUP_WINDOW_MS = 30000; // 30秒窗口内相同类型去重
+// 仅用于防「同一条消息被重复提交」（手抖双击 / 重入），窗口很短；
+// 内容不同的消息即使类型相同也必须各自落卡，不能互相吞掉。
+const DEDUP_WINDOW_MS = 3000; // 3秒窗口内「完全相同的消息」才去重
 
 interface DedupEntry {
   type: 'schedule' | 'todo' | 'request';
@@ -71,7 +73,8 @@ function simpleHash(str: string): string {
 
 /**
  * 检查是否应该被去重
- * - 同一类型在时间窗口内重复触发 → 去重
+ * - 仅当「类型相同 且 内容完全相同」并处于极短窗口内，才判定为重复提交 → 去重
+ * - 内容不同的同类型消息（如连续安排两场会议）必须各自生成卡片，不得去重
  */
 function shouldDedup(currentType: 'schedule' | 'todo' | 'request', content: string): boolean {
   if (!lastIntent) return false;
@@ -82,8 +85,8 @@ function shouldDedup(currentType: 'schedule' | 'todo' | 'request', content: stri
     return false;
   }
 
-  // 同一类型在窗口内再次触发 → 去重
-  if (lastIntent.type === currentType) {
+  // 必须类型与内容都相同才算重复提交（此前仅比类型，会把内容不同的消息误吞）
+  if (lastIntent.type === currentType && lastIntent.contentHash === simpleHash(content)) {
     return true;
   }
 
