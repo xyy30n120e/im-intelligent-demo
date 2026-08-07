@@ -283,13 +283,18 @@ export async function analyzeChatMessage(
           lastCardSummary: lastCard.summary,
         };
       }
+      // 大模型调用成功：清掉任何历史提示
+      useAIStore.getState().setLlmNotice(null);
     } catch (e) {
       console.warn('[意图识别] 调用 LLM 失败，回退 mock：', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      useAIStore.getState().setLlmNotice(`大模型调用失败，已回退本地解析：${msg}`);
       source = 'mock(fallback)';
       const mock = mockChatAnalysis(message, conversationName);
       result = { ...mock, confidence: 0.95 };
     }
   } else {
+    useAIStore.getState().setLlmNotice('未配置 VITE_LLM_API_KEY，当前使用本地规则解析（非大模型）');
     const mock = mockChatAnalysis(message, conversationName);
     result = { ...mock, confidence: 0.95 };
   }

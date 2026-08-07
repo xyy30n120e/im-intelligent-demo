@@ -53,6 +53,9 @@ interface AIState {
   aiNavBadge: Record<string, number>;
   reviewVersion: number;
   firstReuploadedMsgId: string | null;
+  /** 大模型调用状态提示（如未配置 Key / 调用失败回退），用于在界面上可见地反映「大模型是否被调用」 */
+  llmNotice: string | null;
+  setLlmNotice: (m: string | null) => void;
   /** 跳转到需求标签并自动打开某需求的编辑弹窗（来自 AI 卡片的「查看详情」） */
   requestEditId: string | null;
   /** 低置信度意图：等待用户手动确认加入哪个 Tab */
@@ -141,6 +144,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   highlightScheduleDate: null,
   reviewVersion: 0,
   firstReuploadedMsgId: null,
+  llmNotice: null,
   requestEditId: null,
   pendingIntents: [],
   activeCardByConv: {},
@@ -453,5 +457,14 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
   setFirstReuploadedMsgId: (id) => {
     set({ firstReuploadedMsgId: id });
+  },
+  setLlmNotice: (m) => {
+    set({ llmNotice: m });
+    if (m) {
+      // 6 秒后自动消失（仅当仍是同一条提示时），避免残留
+      setTimeout(() => {
+        if (get().llmNotice === m) set({ llmNotice: null });
+      }, 6000);
+    }
   },
 }));

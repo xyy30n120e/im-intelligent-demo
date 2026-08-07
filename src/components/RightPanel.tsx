@@ -211,6 +211,7 @@ const RightPanel: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewFile, setPreviewFile] = React.useState<FileMeta | null>(null);
   const [pendingFiles, setPendingFiles] = React.useState<FileMeta[]>([]);
+  const llmNotice = useAIStore((s) => s.llmNotice);
 
   const currentConv = conversations.find(c => c.id === selectedConversationId);
 
@@ -703,6 +704,14 @@ const RightPanel: React.FC = () => {
           {currentConv.name}
         </h2>
       </div>
+
+      {/* 大模型调用状态提示：可见地反映「大模型是否被调用」 */}
+      {llmNotice && (
+        <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-700 flex items-start gap-2">
+          <i className="fas fa-triangle-exclamation mt-0.5" />
+          <span className="leading-relaxed">{llmNotice}</span>
+        </div>
+      )}
 
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-5 pt-4 pb-1">
